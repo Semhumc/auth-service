@@ -14,7 +14,7 @@ import (
 
 var (
 	keycloak_base_url      = "http://localhost:8080"
-	keycloak_realm         = "camping_users"
+	keycloak_realm         = "camping"
 	keycloak_client_id     = "camp-be-client"
 	keycloak_client_secret = "Lvgkz3tLh00IcyZebvVOEm5KjlDzewNd"
 	port                   = "5000"
