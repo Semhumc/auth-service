@@ -18,3 +18,10 @@ type UserPayload struct {
 	Username  string `json:"username"`
 	Email     string `json:"email"`
 }
+
+type LoginResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int    `json:"expires_in"`
+	TokenType    string `json:"token_type"`
+}

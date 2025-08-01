@@ -14,6 +14,7 @@ func AuthRoutes(router fiber.Router, handler handler.AuthInterface) {
 
 	api.Post("/login", middleware.LoginMiddleware, handler.LoginHandler)
 	api.Post("/register", middleware.RegisterMiddleware,handler.RegisterHandler)
+	api.Get("/me", handler.GetProfileHandler) 
 
 	user := api.Group("/user")
 	user.Delete("/:id", middleware.DeleteMiddleware,handler.DeleteHandler)

@@ -6,6 +6,7 @@ import (
 	"auth-service/internal/services"
 	"log"
 
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2"
 	_ "github.com/joho/godotenv/autoload"
 
@@ -22,6 +23,12 @@ var (
 func main() {
 
 	app := fiber.New()
+
+	
+    app.Use(cors.New(cors.Config{
+        AllowOrigins:     "http://localhost:3000",
+        AllowCredentials: true,
+    }))
 
 	keycloakService := services.NewKeycloakService( 
 		keycloak_client_id,

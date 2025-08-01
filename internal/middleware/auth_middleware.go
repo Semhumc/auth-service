@@ -6,8 +6,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-
-
 func LoginMiddleware(c *fiber.Ctx) error {
 	var login models.LoginParams
 
@@ -17,8 +15,13 @@ func LoginMiddleware(c *fiber.Ctx) error {
 		})
 	}
 
-	c.Locals("login", login)
+	if login.Email == "" || login.Password == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "email and password are required",
+		})
+	}
 
+	c.Locals("login", login)
 	return c.Next()
 }
 
@@ -31,14 +34,14 @@ func RegisterMiddleware(c *fiber.Ctx) error {
 		})
 	}
 
-	if register.Login.Password == "" {
+	// Zorunlu alanları kontrol et
+	if register.Login.Email == "" || register.Login.Password == "" || register.Username == "" || register.Firstname == "" || register.Lastname == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "password required",
+			"error": "all fields are required",
 		})
 	}
 
 	c.Locals("register", register)
-
 	return c.Next()
 }
 
@@ -52,15 +55,11 @@ func GetUserMiddleware(c *fiber.Ctx) error {
 	}
 
 	c.Locals("userID", userID)
-
 	return c.Next()
-
 }
 
 func UpdateMiddleware(c *fiber.Ctx) error {
 	userID := c.Params("id")
-
-	var userPayload models.UserPayload
 
 	if userID == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -68,15 +67,8 @@ func UpdateMiddleware(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := c.BodyParser(&userPayload); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "invalid request body",
-		})
-	}
-
-	c.Locals("userID",userID)
+	c.Locals("userID", userID)
 	return c.Next()
-
 }
 
 func DeleteMiddleware(c *fiber.Ctx) error {
@@ -90,5 +82,4 @@ func DeleteMiddleware(c *fiber.Ctx) error {
 
 	c.Locals("userID", userID)
 	return c.Next()
-
 }

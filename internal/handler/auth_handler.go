@@ -3,6 +3,7 @@ package handler
 import (
 	"auth-service/internal/models"
 	"auth-service/internal/services"
+	"strings"
 
 	"github.com/Nerzal/gocloak/v13"
 	"github.com/gofiber/fiber/v2"
@@ -24,6 +25,7 @@ type AuthInterface interface {
 	UpdateHandler(c *fiber.Ctx) error
 	DeleteHandler(c *fiber.Ctx) error
 	GetUserHandler(c *fiber.Ctx) error
+	GetProfileHandler(c *fiber.Ctx) error
 }
 
 func (h *AuthHandler) LoginHandler(c *fiber.Ctx) error {
@@ -37,7 +39,33 @@ func (h *AuthHandler) LoginHandler(c *fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(token)
+	// Token'ı HTTP-only cookie olarak set et (güvenlik için)
+	c.Cookie(&fiber.Cookie{
+		Name:     "access_token",
+		Value:    token.AccessToken,
+		HTTPOnly: true,
+		Secure:   false, // Development için false, production'da true olmalı
+		SameSite: "Lax",
+	})
+
+	return c.JSON(fiber.Map{
+		"message": "login successful",
+		"user":    token,
+	})
+}
+
+func (h *AuthHandler) LogoutHandler(c *fiber.Ctx) error {
+	// Cookie'yi temizle
+	c.Cookie(&fiber.Cookie{
+		Name:     "access_token",
+		Value:    "",
+		HTTPOnly: true,
+		MaxAge:   -1,
+	})
+
+	return c.JSON(fiber.Map{
+		"message": "logout successful",
+	})
 }
 
 func (h *AuthHandler) RegisterHandler(c *fiber.Ctx) error {
@@ -57,7 +85,7 @@ func (h *AuthHandler) RegisterHandler(c *fiber.Ctx) error {
 }
 
 func (h *AuthHandler) GetUserHandler(c *fiber.Ctx) error {
-	
+
 	userIDVal := c.Locals("userID")
 	userID, ok := userIDVal.(string)
 	if !ok || userID == "" {
@@ -127,4 +155,35 @@ func (h *AuthHandler) DeleteHandler(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "user deleted successfully",
 	})
+}
+func (h *AuthHandler) GetProfileHandler(c *fiber.Ctx) error {
+	// Token'ı cookie'den al
+	token := c.Cookies("access_token")
+	if token == "" {
+		// Header'dan da kontrol et
+		authHeader := c.Get("Authorization")
+		if authHeader == "" {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "no access token provided",
+			})
+		}
+		
+		// Bearer token formatını kontrol et
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "invalid authorization header format",
+			})
+		}
+		token = parts[1]
+	}
+
+	user, err := h.keycloakService.GetUserProfile(token)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "invalid or expired token",
+		})
+	}
+
+	return c.JSON(user)
 }

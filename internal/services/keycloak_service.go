@@ -12,7 +12,7 @@ import (
 var (
 	KEYCLOAK_ADMIN_USERNAME = os.Getenv("KEYCLOAK_ADMIN_USERNAME")
 	KEYCLOAK_ADMIN_PASSWORD = os.Getenv("KEYCLOAK_ADMIN_PASSWORD")
-	KEYCLOAK_ADMIN_REALM = os.Getenv("KEYCLOAK_ADMIN_REALM")
+	KEYCLOAK_ADMIN_REALM    = os.Getenv("KEYCLOAK_ADMIN_REALM")
 
 	hostname = "sdasd"
 )
@@ -35,13 +35,21 @@ func NewKeycloakService(client_id string, client_secret string, realm string, ho
 	}
 }
 
-func (ks *KeycloakService) Login(login models.LoginParams) (*gocloak.JWT, error) {
+func (ks *KeycloakService) Login(login models.LoginParams) (*models.LoginResponse, error) {
 	ctx := context.Background()
 	token, err := ks.Gocloak.Login(ctx, login.Email, login.Password, ks.ClientId, ks.ClientSecret, ks.Realm)
 	if err != nil {
 		return nil, fmt.Errorf("login fail: %w", err)
 	}
-	return token, nil
+
+	// Response modelimize dönüştür
+	response := &models.LoginResponse{
+		AccessToken:  token.AccessToken,
+		RefreshToken: token.RefreshToken,
+		ExpiresIn:    token.ExpiresIn,
+		TokenType:    token.TokenType,
+	}
+	return response, nil
 }
 
 func (ks *KeycloakService) Register(register models.RegisterParams) error {
@@ -120,4 +128,26 @@ func (ks *KeycloakService) DeleteUser(userID string) error {
 		return fmt.Errorf("delete user failed: %w", err)
 	}
 	return nil
+}
+func (ks *KeycloakService) GetUserProfile(accessToken string) (*gocloak.User, error) {
+	ctx := context.Background()
+	
+	userInfo, err := ks.Gocloak.GetUserInfo(ctx, accessToken, ks.Realm)
+	if err != nil {
+		return nil, fmt.Errorf("get user info failed: %w", err)
+	}
+
+	// Admin token ile kullanıcı detaylarını al
+	adminToken, err := ks.Gocloak.LoginAdmin(ctx, KEYCLOAK_ADMIN_USERNAME, KEYCLOAK_ADMIN_PASSWORD, KEYCLOAK_ADMIN_REALM)
+	if err != nil {
+		return nil, fmt.Errorf("admin login failed: %w", err)
+	}
+
+	// UserInfo'dan gelen sub (subject) ID'sini kullanarak tam kullanıcı bilgisini al
+	user, err := ks.Gocloak.GetUserByID(ctx, adminToken.AccessToken, ks.Realm, *userInfo.Sub)
+	if err != nil {
+		return nil, fmt.Errorf("get user failed: %w", err)
+	}
+	
+	return user, nil
 }
