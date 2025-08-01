@@ -12,13 +12,15 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 )
 
+var (
+	keycloak_base_url      = "http://localhost:8080"
+	keycloak_realm         = "camping_users"
+	keycloak_client_id     = "camp-be-client"
+	keycloak_client_secret = "Lvgkz3tLh00IcyZebvVOEm5KjlDzewNd"
+	port                   = "5000"
+)
+
 func main() {
-	// Load environment variables with defaults
-	keycloak_base_url := getEnvOrDefault("KEYCLOAK_BASE_URL", "http://localhost:8080")
-	keycloak_realm := getEnvOrDefault("KEYCLOAK_REALM", "master")
-	keycloak_client_id := getEnvOrDefault("KEYCLOAK_CLIENT_ID", "admin-cli")
-	keycloak_client_secret := getEnvOrDefault("KEYCLOAK_CLIENT_SECRET", "")
-	port := getEnvOrDefault("PORT", "5000")
 
 	fmt.Printf("🚀 Starting Auth Service\n")
 	fmt.Printf("   Port: %s\n", port)
@@ -52,7 +54,7 @@ func main() {
 	fmt.Printf("   POST http://localhost:%s/api/v1/logout\n", port)
 	fmt.Printf("   GET  http://localhost:%s/api/v1/me\n", port)
 	fmt.Println()
-	
+
 	// Start server
 	log.Fatal(app.Listen(":" + port))
 }
