@@ -1,15 +1,17 @@
+// internal/models/keycloak.go - UPDATED
 package models
 
 type LoginParams struct {
-	Email    string `json:"email"`
+	Username string `json:"username"` // Email yerine username
 	Password string `json:"password"`
 }
 
 type RegisterParams struct {
-	Firstname string `json:"firstname"`
-	Lastname  string `json:"lastname"`
-	Username  string `json:"username"`
-	Login     LoginParams
+	Firstname string      `json:"firstname"`
+	Lastname  string      `json:"lastname"`
+	Username  string      `json:"username"`
+	Email     string      `json:"email"`    // Email ayrı field olarak
+	Password  string      `json:"password"` // Password direkt olarak
 }
 
 type UserPayload struct {

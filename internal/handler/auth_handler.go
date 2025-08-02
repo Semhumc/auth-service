@@ -28,12 +28,14 @@ type AuthInterface interface {
 	GetUserHandler(c *fiber.Ctx) error
 	GetProfileHandler(c *fiber.Ctx) error
 	LogoutHandler(c *fiber.Ctx) error
+	GetCurrentUserHandler(c *fiber.Ctx) error  // Yeni: Giriş yapmış kullanıcının kendi bilgilerini getirme
+	UpdateCurrentUserHandler(c *fiber.Ctx) error // Yeni: Giriş yapmış kullanıcının kendi bilgilerini güncelleme
+	DeleteCurrentUserHandler(c *fiber.Ctx) error // Yeni: Giriş yapmış kullanıcının kendi hesabını silme
 }
 
 func (h *AuthHandler) LoginHandler(c *fiber.Ctx) error {
 	fmt.Printf("🔐 LoginHandler called\n")
 	
-	// Check if login data exists in locals
 	loginData := c.Locals("login")
 	if loginData == nil {
 		fmt.Printf("❌ No login data in locals\n")
@@ -50,25 +52,24 @@ func (h *AuthHandler) LoginHandler(c *fiber.Ctx) error {
 		})
 	}
 
-	fmt.Printf("📧 Login attempt for email: %s\n", login.Email)
+	fmt.Printf("👤 Login attempt for username: %s\n", login.Username)
 
 	token, err := h.keycloakService.Login(login)
 	if err != nil {
 		fmt.Printf("❌ Keycloak login failed: %v\n", err)
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": "login failed",
-			"details": err.Error(), // Include error details for debugging
+			"details": err.Error(),
 		})
 	}
 
 	fmt.Printf("✅ Login successful!\n")
 
-	// Token'ı HTTP-only cookie olarak set et (güvenlik için)
 	c.Cookie(&fiber.Cookie{
 		Name:     "access_token",
 		Value:    token.AccessToken,
 		HTTPOnly: true,
-		Secure:   false, // Development için false, production'da true olmalı
+		Secure:   false,
 		SameSite: "Lax",
 	})
 
@@ -81,7 +82,6 @@ func (h *AuthHandler) LoginHandler(c *fiber.Ctx) error {
 func (h *AuthHandler) LogoutHandler(c *fiber.Ctx) error {
 	fmt.Printf("👋 LogoutHandler called\n")
 	
-	// Cookie'yi temizle
 	c.Cookie(&fiber.Cookie{
 		Name:     "access_token",
 		Value:    "",
@@ -97,10 +97,8 @@ func (h *AuthHandler) LogoutHandler(c *fiber.Ctx) error {
 func (h *AuthHandler) GetProfileHandler(c *fiber.Ctx) error {
 	fmt.Printf("👤 GetProfileHandler called\n")
 	
-	// Token'ı cookie'den al
 	token := c.Cookies("access_token")
 	if token == "" {
-		// Header'dan da kontrol et
 		authHeader := c.Get("Authorization")
 		if authHeader == "" {
 			fmt.Printf("❌ No access token provided\n")
@@ -109,7 +107,6 @@ func (h *AuthHandler) GetProfileHandler(c *fiber.Ctx) error {
 			})
 		}
 		
-		// Bearer token formatını kontrol et
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
 			fmt.Printf("❌ Invalid authorization header format\n")
@@ -154,7 +151,7 @@ func (h *AuthHandler) RegisterHandler(c *fiber.Ctx) error {
 		})
 	}
 
-	fmt.Printf("📧 Registration attempt for email: %s\n", register.Login.Email)
+	fmt.Printf("📧 Registration attempt for email: %s, username: %s\n", register.Email, register.Username)
 
 	err := h.keycloakService.Register(register)
 	if err != nil {
@@ -171,7 +168,20 @@ func (h *AuthHandler) RegisterHandler(c *fiber.Ctx) error {
 	})
 }
 
+// USER MANAGEMENT ENDPOINTS
+
+// GET /user/:id - Belirli bir kullanıcıyı ID ile getir (Admin işlemi)
 func (h *AuthHandler) GetUserHandler(c *fiber.Ctx) error {
+	fmt.Printf("👥 GetUserHandler called\n")
+	
+	// Token kontrolü
+	token := c.Locals("access_token")
+	if token == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "authentication required",
+		})
+	}
+
 	userIDVal := c.Locals("userID")
 	userID, ok := userIDVal.(string)
 	if !ok || userID == "" {
@@ -180,14 +190,33 @@ func (h *AuthHandler) GetUserHandler(c *fiber.Ctx) error {
 		})
 	}
 
+	fmt.Printf("🔍 Getting user by ID: %s\n", userID)
+
 	user, err := h.keycloakService.GetUserByID(userID)
 	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+		fmt.Printf("❌ Get user by ID failed: %v\n", err)
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "user not found",
+			"details": err.Error(),
+		})
 	}
+
+	fmt.Printf("✅ User retrieved successfully\n")
 	return c.JSON(user)
 }
 
+// PUT /user/:id - Belirli bir kullanıcıyı güncelle
 func (h *AuthHandler) UpdateHandler(c *fiber.Ctx) error {
+	fmt.Printf("✏️ UpdateHandler called\n")
+	
+	// Token kontrolü
+	token := c.Locals("access_token")
+	if token == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "authentication required",
+		})
+	}
+
 	userIDVal := c.Locals("userID")
 	userID, ok := userIDVal.(string)
 	if !ok || userID == "" {
@@ -200,8 +229,11 @@ func (h *AuthHandler) UpdateHandler(c *fiber.Ctx) error {
 	if err := c.BodyParser(&userPayload); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "invalid request body",
+			"details": err.Error(),
 		})
 	}
+
+	fmt.Printf("🔄 Updating user ID: %s\n", userID)
 
 	user := gocloak.User{
 		ID:        gocloak.StringP(userID),
@@ -213,17 +245,31 @@ func (h *AuthHandler) UpdateHandler(c *fiber.Ctx) error {
 
 	err := h.keycloakService.UpdateUser(userID, user)
 	if err != nil {
+		fmt.Printf("❌ Update user failed: %v\n", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "update failed",
+			"details": err.Error(),
 		})
 	}
 
+	fmt.Printf("✅ User updated successfully\n")
 	return c.JSON(fiber.Map{
 		"message": "user updated successfully",
 	})
 }
 
+// DELETE /user/:id - Belirli bir kullanıcıyı sil
 func (h *AuthHandler) DeleteHandler(c *fiber.Ctx) error {
+	fmt.Printf("🗑️ DeleteHandler called\n")
+	
+	// Token kontrolü
+	token := c.Locals("access_token")
+	if token == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "authentication required",
+		})
+	}
+
 	userIDVal := c.Locals("userID")
 	userID, ok := userIDVal.(string)
 	if !ok || userID == "" {
@@ -232,13 +278,164 @@ func (h *AuthHandler) DeleteHandler(c *fiber.Ctx) error {
 		})
 	}
 
+	fmt.Printf("🗑️ Deleting user ID: %s\n", userID)
+
 	err := h.keycloakService.DeleteUser(userID)
 	if err != nil {
+		fmt.Printf("❌ Delete user failed: %v\n", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "delete failed",
+			"details": err.Error(),
 		})
 	}
+
+	fmt.Printf("✅ User deleted successfully\n")
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "user deleted successfully",
+	})
+}
+
+// YENİ ENDPOINT'LER - Giriş yapmış kullanıcının kendi işlemleri için
+
+// GET /user/me - Giriş yapmış kullanıcının kendi bilgilerini getir
+func (h *AuthHandler) GetCurrentUserHandler(c *fiber.Ctx) error {
+	fmt.Printf("👤 GetCurrentUserHandler called\n")
+	
+	token := c.Locals("access_token")
+	if token == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "authentication required",
+		})
+	}
+
+	tokenStr, ok := token.(string)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "invalid token format",
+		})
+	}
+
+	fmt.Printf("🔍 Getting current user profile\n")
+
+	user, err := h.keycloakService.GetUserProfile(tokenStr)
+	if err != nil {
+		fmt.Printf("❌ Get current user failed: %v\n", err)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "invalid or expired token",
+			"details": err.Error(),
+		})
+	}
+
+	fmt.Printf("✅ Current user profile retrieved successfully\n")
+	return c.JSON(user)
+}
+
+// PUT /user/me - Giriş yapmış kullanıcının kendi bilgilerini güncelle
+func (h *AuthHandler) UpdateCurrentUserHandler(c *fiber.Ctx) error {
+	fmt.Printf("✏️ UpdateCurrentUserHandler called\n")
+	
+	token := c.Locals("access_token")
+	if token == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "authentication required",
+		})
+	}
+
+	tokenStr, ok := token.(string)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "invalid token format",
+		})
+	}
+
+	// Önce kullanıcının kendi ID'sini al
+	userProfile, err := h.keycloakService.GetUserProfile(tokenStr)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "invalid or expired token",
+		})
+	}
+
+	var userPayload models.UserPayload
+	if err := c.BodyParser(&userPayload); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid request body",
+			"details": err.Error(),
+		})
+	}
+
+	fmt.Printf("🔄 Updating current user\n")
+
+	user := gocloak.User{
+		ID:        userProfile.ID,
+		FirstName: gocloak.StringP(userPayload.Firstname),
+		LastName:  gocloak.StringP(userPayload.Lastname),
+		Username:  gocloak.StringP(userPayload.Username),
+		Email:     gocloak.StringP(userPayload.Email),
+	}
+
+	err = h.keycloakService.UpdateUser(*userProfile.ID, user)
+	if err != nil {
+		fmt.Printf("❌ Update current user failed: %v\n", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "update failed",
+			"details": err.Error(),
+		})
+	}
+
+	fmt.Printf("✅ Current user updated successfully\n")
+	return c.JSON(fiber.Map{
+		"message": "profile updated successfully",
+	})
+}
+
+// DELETE /user/me - Giriş yapmış kullanıcının kendi hesabını sil
+func (h *AuthHandler) DeleteCurrentUserHandler(c *fiber.Ctx) error {
+	fmt.Printf("🗑️ DeleteCurrentUserHandler called\n")
+	
+	token := c.Locals("access_token")
+	if token == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "authentication required",
+		})
+	}
+
+	tokenStr, ok := token.(string)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "invalid token format",
+		})
+	}
+
+	// Önce kullanıcının kendi ID'sini al
+	userProfile, err := h.keycloakService.GetUserProfile(tokenStr)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "invalid or expired token",
+		})
+	}
+
+	fmt.Printf("🗑️ Deleting current user account\n")
+
+	err = h.keycloakService.DeleteUser(*userProfile.ID)
+	if err != nil {
+		fmt.Printf("❌ Delete current user failed: %v\n", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "delete failed",
+			"details": err.Error(),
+		})
+	}
+
+	// Hesap silindikten sonra cookie'yi de temizle
+	c.Cookie(&fiber.Cookie{
+		Name:     "access_token",
+		Value:    "",
+		HTTPOnly: true,
+		MaxAge:   -1,
+	})
+
+	fmt.Printf("✅ Current user account deleted successfully\n")
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "account deleted successfully",
 	})
 }

@@ -13,8 +13,6 @@ var (
 	KEYCLOAK_ADMIN_USERNAME = os.Getenv("KEYCLOAK_ADMIN_USERNAME")
 	KEYCLOAK_ADMIN_PASSWORD = os.Getenv("KEYCLOAK_ADMIN_PASSWORD")
 	KEYCLOAK_ADMIN_REALM    = os.Getenv("KEYCLOAK_ADMIN_REALM")
-
-	hostname = "sdasd"
 )
 
 type KeycloakService struct {
@@ -37,7 +35,9 @@ func NewKeycloakService(client_id string, client_secret string, realm string, ho
 
 func (ks *KeycloakService) Login(login models.LoginParams) (*models.LoginResponse, error) {
 	ctx := context.Background()
-	token, err := ks.Gocloak.Login(ctx, login.Email, login.Password, ks.ClientId, ks.ClientSecret, ks.Realm)
+	
+	// Keycloak Login artık username ile yapılıyor
+	token, err := ks.Gocloak.Login(ctx, ks.ClientId, ks.ClientSecret, ks.Realm, login.Username, login.Password)
 	if err != nil {
 		return nil, fmt.Errorf("login fail: %w", err)
 	}
@@ -64,7 +64,7 @@ func (ks *KeycloakService) Register(register models.RegisterParams) error {
 		FirstName: gocloak.StringP(register.Firstname),
 		LastName:  gocloak.StringP(register.Lastname),
 		Username:  gocloak.StringP(register.Username),
-		Email:     gocloak.StringP(register.Login.Email),
+		Email:     gocloak.StringP(register.Email), // Email ayrı olarak set ediliyor
 		Enabled:   gocloak.BoolP(true),
 	}
 
@@ -76,7 +76,7 @@ func (ks *KeycloakService) Register(register models.RegisterParams) error {
 
 	cred := gocloak.CredentialRepresentation{
 		Type:      gocloak.StringP("password"),
-		Value:     gocloak.StringP(register.Login.Password),
+		Value:     gocloak.StringP(register.Password),
 		Temporary: gocloak.BoolP(false),
 	}
 	err = ks.Gocloak.SetPassword(ctx, adminToken.AccessToken, userID, ks.Realm, *cred.Value, false)
@@ -129,6 +129,7 @@ func (ks *KeycloakService) DeleteUser(userID string) error {
 	}
 	return nil
 }
+
 func (ks *KeycloakService) GetUserProfile(accessToken string) (*gocloak.User, error) {
 	ctx := context.Background()
 	

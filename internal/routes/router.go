@@ -10,10 +10,8 @@ import (
 )
 
 func AuthRoutes(app *fiber.App, handler handler.AuthInterface) {
-	// Add request logging
 	app.Use(logger.New())
 
-	// CORS middleware - configured for React development
 	app.Use(cors.New(cors.Config{
 		AllowOrigins:     "http://localhost:3000",
 		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS",
@@ -43,19 +41,26 @@ func AuthRoutes(app *fiber.App, handler handler.AuthInterface) {
 		})
 	})
 
-	// Auth endpoints
+	// AUTH ENDPOINTS (Token gerektirmeyen)
 	api.Post("/login", middleware.LoginMiddleware, handler.LoginHandler)
 	api.Post("/register", middleware.RegisterMiddleware, handler.RegisterHandler)
-	//api.Post("/logout", handler.LogoutHandler)
-	api.Get("/me", handler.GetProfileHandler)
+	api.Post("/logout", handler.LogoutHandler)
+	api.Get("/me", handler.GetProfileHandler) // Eski endpoint, uyumluluk için
 
-	// User management endpoints
+	// USER MANAGEMENT ENDPOINTS (Token gerektiren)
 	user := api.Group("/user")
-	user.Get("/:id", middleware.GetUserMiddleware, handler.GetUserHandler)
-	user.Put("/:id", middleware.UpdateMiddleware, handler.UpdateHandler)
-	user.Delete("/:id", middleware.DeleteMiddleware, handler.DeleteHandler)
+	
+	// Giriş yapmış kullanıcının kendi işlemleri (Token ile)
+	user.Get("/me", middleware.AuthTokenMiddleware, handler.GetCurrentUserHandler)
+	user.Put("/me", middleware.AuthTokenMiddleware, handler.UpdateCurrentUserHandler)
+	user.Delete("/me", middleware.AuthTokenMiddleware, handler.DeleteCurrentUserHandler)
+	
+	// Admin seviyesi işlemler (ID ile) - Token gerekli
+	user.Get("/:id", middleware.AuthTokenMiddleware, middleware.GetUserMiddleware, handler.GetUserHandler)
+	user.Put("/:id", middleware.AuthTokenMiddleware, middleware.UpdateMiddleware, handler.UpdateHandler)
+	user.Delete("/:id", middleware.AuthTokenMiddleware, middleware.DeleteMiddleware, handler.DeleteHandler)
 
-	// Debug endpoint to test CORS
+	// Debug endpoint
 	api.Get("/test-cors", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"message": "CORS is working!",
@@ -64,7 +69,7 @@ func AuthRoutes(app *fiber.App, handler handler.AuthInterface) {
 		})
 	})
 
-	// Catch-all route for debugging
+	// Catch-all route
 	app.Use("*", func(c *fiber.Ctx) error {
 		return c.Status(404).JSON(fiber.Map{
 			"error":  "Route not found",
