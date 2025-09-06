@@ -14,9 +14,9 @@ import (
 
 var (
 	keycloak_base_url      = "http://localhost:8080"
-	keycloak_realm         = "camping"
+	keycloak_realm         = os.Getenv("KEYCLOAK_REALM")
 	keycloak_client_id     = "camp-be-client"
-	keycloak_client_secret = "Lvgkz3tLh00IcyZebvVOEm5KjlDzewNd"
+	keycloak_client_secret = os.Getenv("KEYCLOAK_CLIENT_SECRET")
 	port                   = "5000"
 )
 
@@ -43,7 +43,7 @@ func main() {
 	authHandler := handler.NewAuthHandler(keycloakService)
 
 	// Setup routes
-	routes.AuthRoutes(app, authHandler)
+	routes.AuthRoutes(app, authHandler, keycloakService)
 
 	fmt.Printf("🌐 Server starting on port %s\n", port)
 	fmt.Printf("📋 Available endpoints:\n")

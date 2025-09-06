@@ -83,6 +83,14 @@ func (ks *KeycloakService) Register(register models.RegisterParams) error {
 	if err != nil {
 		return fmt.Errorf("setting password fail: %w", err)
 	}
+
+	err = ks.Gocloak.SendVerifyEmail(ctx, adminToken.AccessToken, userID,ks.Realm , gocloak.SendVerificationMailParams{
+		ClientID: gocloak.StringP(ks.ClientId),
+		RedirectURI: gocloak.StringP("http://localhost:3000/"),
+	})
+	if err != nil {
+		return fmt.Errorf("send verify email failed: %w", err)
+	}
 	return nil
 }
 
@@ -151,4 +159,27 @@ func (ks *KeycloakService) GetUserProfile(accessToken string) (*gocloak.User, er
 	}
 	
 	return user, nil
+}
+
+func (ks *KeycloakService) RefreshToken(refreshToken string) (*models.LoginResponse, error) {
+	ctx := context.Background()
+	
+	refresh_token, err := ks.Gocloak.RefreshToken(ctx, ks.ClientId, ks.ClientSecret, ks.Realm, refreshToken)
+	if err != nil {
+		return nil, fmt.Errorf("refresh token failed: %w", err)
+	}
+	return &models.LoginResponse{
+		AccessToken:  refresh_token.AccessToken,
+		RefreshToken: refresh_token.RefreshToken,
+		ExpiresIn:    refresh_token.ExpiresIn,
+		TokenType:    refresh_token.TokenType,
+	}, nil
+}
+func (ks *KeycloakService) Logout(refreshToken string) error {
+	ctx := context.Background()
+	err := ks.Gocloak.Logout(ctx, ks.ClientId, ks.ClientSecret, ks.Realm, refreshToken)
+	if err != nil {
+		return fmt.Errorf("logout failed: %w", err)
+	}
+	return nil
 }

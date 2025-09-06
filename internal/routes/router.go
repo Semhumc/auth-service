@@ -3,13 +3,14 @@ package routes
 import (
 	"auth-service/internal/handler"
 	"auth-service/internal/middleware"
+	"auth-service/internal/services"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 )
 
-func AuthRoutes(app *fiber.App, handler handler.AuthInterface) {
+func AuthRoutes(app *fiber.App, handler handler.AuthInterface, keycloakService *services.KeycloakService) {
 	app.Use(logger.New())
 
 	app.Use(cors.New(cors.Config{
@@ -41,24 +42,27 @@ func AuthRoutes(app *fiber.App, handler handler.AuthInterface) {
 		})
 	})
 
+	authTokenMiddleware := middleware.NewAuthTokenMiddleware(keycloakService)
+
 	// AUTH ENDPOINTS (Token gerektirmeyen)
 	api.Post("/login", middleware.LoginMiddleware, handler.LoginHandler)
 	api.Post("/register", middleware.RegisterMiddleware, handler.RegisterHandler)
 	api.Post("/logout", handler.LogoutHandler)
+	api.Post("/refresh", handler.RefreshTokenHandler)
 	api.Get("/me", handler.GetProfileHandler) // Eski endpoint, uyumluluk için
 
 	// USER MANAGEMENT ENDPOINTS (Token gerektiren)
 	user := api.Group("/user")
 	
 	// Giriş yapmış kullanıcının kendi işlemleri (Token ile)
-	user.Get("/me", middleware.AuthTokenMiddleware, handler.GetCurrentUserHandler)
-	user.Put("/me", middleware.AuthTokenMiddleware, handler.UpdateCurrentUserHandler)
-	user.Delete("/me", middleware.AuthTokenMiddleware, handler.DeleteCurrentUserHandler)
+	user.Get("/me", authTokenMiddleware, handler.GetCurrentUserHandler)
+	user.Put("/me", authTokenMiddleware, handler.UpdateCurrentUserHandler)
+	user.Delete("/me", authTokenMiddleware, handler.DeleteCurrentUserHandler)
 	
 	// Admin seviyesi işlemler (ID ile) - Token gerekli
-	user.Get("/:id", middleware.AuthTokenMiddleware, middleware.GetUserMiddleware, handler.GetUserHandler)
-	user.Put("/:id", middleware.AuthTokenMiddleware, middleware.UpdateMiddleware, handler.UpdateHandler)
-	user.Delete("/:id", middleware.AuthTokenMiddleware, middleware.DeleteMiddleware, handler.DeleteHandler)
+	user.Get("/:id", authTokenMiddleware, middleware.GetUserMiddleware, handler.GetUserHandler)
+	user.Put("/:id", authTokenMiddleware, middleware.UpdateMiddleware, handler.UpdateHandler)
+	user.Delete("/:id", authTokenMiddleware, middleware.DeleteMiddleware, handler.DeleteHandler)
 
 	// Debug endpoint
 	api.Get("/test-cors", func(c *fiber.Ctx) error {

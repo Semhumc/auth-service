@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"auth-service/internal/models"
+	"auth-service/internal/services"
 	"fmt"
 	"strings"
 
@@ -88,37 +89,77 @@ func RegisterMiddleware(c *fiber.Ctx) error {
 	return c.Next()
 }
 
-// JWT TOKEN VALIDATION MIDDLEWARE - User Management endpoint'leri için
-func AuthTokenMiddleware(c *fiber.Ctx) error {
-	fmt.Printf("🔐 AuthTokenMiddleware called for path: %s\n", c.Path())
-	
-	// Token'ı cookie'den veya header'dan al
-	token := c.Cookies("access_token")
-	if token == "" {
-		// Authorization header'dan kontrol et
-		authHeader := c.Get("Authorization")
-		if authHeader == "" {
-			fmt.Printf("❌ No access token provided\n")
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"error": "access token required",
-			})
-		}
-		
-		// Bearer token formatını kontrol et
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			fmt.Printf("❌ Invalid authorization header format\n")
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"error": "invalid authorization header format",
-			})
-		}
-		token = parts[1]
-	}
+func NewAuthTokenMiddleware(keycloakService *services.KeycloakService) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		fmt.Printf("🔐 AuthTokenMiddleware called for path: %s\n", c.Path())
 
-	// Token'ı locals'a kaydet ki handler'da kullanabilelim
-	c.Locals("access_token", token)
-	fmt.Printf("✅ Token validated and stored in locals\n")
-	return c.Next()
+		// 1. Get access token from header or cookie
+		accessToken := c.Cookies("access_token")
+		if accessToken == "" {
+			authHeader := c.Get("Authorization")
+			if authHeader == "" {
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "access token required"})
+			}
+			parts := strings.Split(authHeader, " ")
+			if len(parts) != 2 || parts[0] != "Bearer" {
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid authorization header format"})
+			}
+			accessToken = parts[1]
+		}
+
+		// 2. Introspect the token
+		ctx := c.Context()
+		result, err := keycloakService.Gocloak.RetrospectToken(ctx, accessToken, keycloakService.ClientId, keycloakService.ClientSecret, keycloakService.Realm)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to introspect token", "details": err.Error()})
+		}
+
+		// 3. Check if token is active
+		if !*result.Active {
+			fmt.Println("Token is inactive, attempting refresh")
+
+			// 3a. Get refresh token from cookie
+			refreshToken := c.Cookies("refresh_token")
+			if refreshToken == "" {
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "session expired, no refresh token found"})
+			}
+
+			// 3b. Attempt to refresh the token
+			newTokens, err := keycloakService.RefreshToken(refreshToken)
+			if err != nil {
+				// Clear cookies if refresh fails
+				c.Cookie(&fiber.Cookie{Name: "access_token", MaxAge: -1})
+				c.Cookie(&fiber.Cookie{Name: "refresh_token", MaxAge: -1})
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "session expired, token refresh failed", "details": err.Error()})
+			}
+
+			// 3c. Refresh successful, set new tokens in cookies
+			c.Cookie(&fiber.Cookie{
+				Name:     "access_token",
+				Value:    newTokens.AccessToken,
+				HTTPOnly: true,
+				Secure:   false,
+				SameSite: "Lax",
+			})
+			c.Cookie(&fiber.Cookie{
+				Name:     "refresh_token",
+				Value:    newTokens.RefreshToken,
+				HTTPOnly: true,
+				Secure:   false,
+				SameSite: "Lax",
+			})
+
+			// Use the new access token for the current request
+			c.Locals("access_token", newTokens.AccessToken)
+			fmt.Println("✅ Token refreshed successfully")
+			return c.Next()
+		}
+
+		// 4. Token is active, proceed
+		c.Locals("access_token", accessToken)
+		fmt.Printf("✅ Token validated and stored in locals\n")
+		return c.Next()
+	}
 }
 
 func GetUserMiddleware(c *fiber.Ctx) error {

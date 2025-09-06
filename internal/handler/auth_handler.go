@@ -31,6 +31,7 @@ type AuthInterface interface {
 	GetCurrentUserHandler(c *fiber.Ctx) error  // Yeni: Giriş yapmış kullanıcının kendi bilgilerini getirme
 	UpdateCurrentUserHandler(c *fiber.Ctx) error // Yeni: Giriş yapmış kullanıcının kendi bilgilerini güncelleme
 	DeleteCurrentUserHandler(c *fiber.Ctx) error // Yeni: Giriş yapmış kullanıcının kendi hesabını silme
+	RefreshTokenHandler(c *fiber.Ctx) error
 }
 
 func (h *AuthHandler) LoginHandler(c *fiber.Ctx) error {
@@ -81,9 +82,37 @@ func (h *AuthHandler) LoginHandler(c *fiber.Ctx) error {
 
 func (h *AuthHandler) LogoutHandler(c *fiber.Ctx) error {
 	fmt.Printf("👋 LogoutHandler called\n")
-	
+
+	var body struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid request body",
+		})
+	}
+
+	if body.RefreshToken == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "refresh token not provided",
+		})
+	}
+
+	err := h.keycloakService.Logout(body.RefreshToken)
+	if err != nil {
+		// Log the error but still try to clear cookies and log the user out on the client side
+		fmt.Printf("⚠️ Keycloak logout failed: %v\n", err)
+	}
+
 	c.Cookie(&fiber.Cookie{
 		Name:     "access_token",
+		Value:    "",
+		HTTPOnly: true,
+		MaxAge:   -1,
+	})
+	c.Cookie(&fiber.Cookie{
+		Name:     "refresh_token",
 		Value:    "",
 		HTTPOnly: true,
 		MaxAge:   -1,
@@ -437,5 +466,47 @@ func (h *AuthHandler) DeleteCurrentUserHandler(c *fiber.Ctx) error {
 	fmt.Printf("✅ Current user account deleted successfully\n")
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "account deleted successfully",
+	})
+}
+
+func (h *AuthHandler) RefreshTokenHandler(c *fiber.Ctx) error {
+	fmt.Printf("🔄 RefreshTokenHandler called\n")
+
+	var body struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid request body",
+		})
+	}
+
+	if body.RefreshToken == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "refresh token not provided",
+		})
+	}
+
+
+token, err := h.keycloakService.RefreshToken(body.RefreshToken)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error":   "failed to refresh token",
+			"details": err.Error(),
+		})
+	}
+
+	c.Cookie(&fiber.Cookie{
+		Name:     "access_token",
+		Value:    token.AccessToken,
+		HTTPOnly: true,
+		Secure:   false, 
+		SameSite: "Lax",
+	})
+
+	return c.JSON(fiber.Map{
+		"message": "token refreshed successfully",
+		"user":    token,
 	})
 }
